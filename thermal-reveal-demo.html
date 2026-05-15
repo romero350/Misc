@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Ashford Map — Thermal Reveal</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=IM+Fell+English:ital@0;1&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --parchment: #d4b896;
+    --parchment-dark: #b8956a;
+    --ink: #1a0f05;
+    --warm-reveal: #c8782a;
+    --cold-overlay: #0d0a07;
+  }
+
+  body {
+    background: #0d0a07;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    font-family: 'IM Fell English', serif;
+    overflow: hidden;
+    cursor: none;
+  }
+
+  /* ── Book page wrapper ── */
+  .page {
+    position: relative;
+    width: min(680px, 95vw);
+    aspect-ratio: 3/4;
+    background: var(--parchment);
+    box-shadow:
+      4px 4px 0 #7a5535,
+      8px 8px 0 #5a3a18,
+      12px 12px 30px rgba(0,0,0,.8),
+      inset 0 0 60px rgba(100,60,10,.25);
+    border: 1px solid #8b6540;
+    overflow: hidden;
+  }
+
+  /* Aged parchment texture via SVG filter */
+  .page::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image:
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='300' height='300' filter='url(%23n)' opacity='.08'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 10;
+    mix-blend-mode: multiply;
+  }
+
+  /* ── Decorative border ── */
+  .border-frame {
+    position: absolute;
+    inset: 12px;
+    border: 1.5px solid rgba(80,45,10,.4);
+    pointer-events: none;
+    z-index: 9;
+  }
+  .border-frame::before {
+    content: '';
+    position: absolute;
+    inset: 4px;
+    border: .5px solid rgba(80,45,10,.25);
+  }
+
+  /* Corner ornaments */
+  .corner {
+    position: absolute;
+    width: 24px; height: 24px;
+    border-color: #7a5030;
+    border-style: solid;
+    z-index: 9;
+  }
+  .corner.tl { top: 16px; left: 16px; border-width: 2px 0 0 2px; }
+  .corner.tr { top: 16px; right: 16px; border-width: 2px 2px 0 0; }
+  .corner.bl { bottom: 16px; left: 16px; border-width: 0 0 2px 2px; }
+  .corner.br { bottom: 16px; right: 16px; border-width: 0 2px 2px 0; }
+
+  /* ── Map SVG (the content to be revealed) ── */
+  .map-layer {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 40px;
+  }
+
+  .map-layer svg {
+    width: 100%;
+    height: 100%;
+  }
+
+  /* ── Page title ── */
+  .page-title {
+    position: absolute;
+    top: 22px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-family: 'Playfair Display', serif;
+    font-size: clamp(11px, 2vw, 15px);
+    letter-spacing: .25em;
+    color: #4a2c0a;
+    text-transform: uppercase;
+    white-space: nowrap;
+    z-index: 11;
+  }
+
+  .page-number {
+    position: absolute;
+    bottom: 22px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-family: 'Playfair Display', serif;
+    font-style: italic;
+    font-size: 11px;
+    color: #6a4520;
+    z-index: 11;
+  }
+
+  /* ── THE THERMAL CANVAS OVERLAY ── */
+  #thermal-canvas {
+    position: absolute;
+    inset: 0;
+    z-index: 5;
+    cursor: none;
+  }
+
+  /* ── Custom heat cursor ── */
+  #heat-cursor {
+    position: fixed;
+    pointer-events: none;
+    z-index: 9999;
+    transform: translate(-50%, -50%);
+    width: 36px; height: 36px;
+    border-radius: 50%;
+    border: 1.5px solid rgba(220,120,30,.6);
+    box-shadow: 0 0 12px rgba(220,120,30,.4), inset 0 0 8px rgba(220,80,10,.2);
+    transition: transform .1s ease, opacity .2s;
+    opacity: 0;
+  }
+  #heat-cursor.active { opacity: 1; }
+
+  /* ── Instruction tooltip ── */
+  .instruction {
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    text-align: center;
+    padding: 10px;
+    font-family: 'Playfair Display', serif;
+    font-style: italic;
+    font-size: clamp(10px, 1.6vw, 13px);
+    color: rgba(255,200,120,.55);
+    letter-spacing: .08em;
+    z-index: 20;
+    pointer-events: none;
+    animation: pulse 3s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100%{opacity:.55} 50%{opacity:1} }
+
+  /* ── Reset button ── */
+  .reset-btn {
+    margin-top: 18px;
+    background: transparent;
+    border: 1px solid rgba(180,120,50,.4);
+    color: rgba(180,120,50,.7);
+    font-family: 'IM Fell English', serif;
+    font-size: 11px;
+    letter-spacing: .2em;
+    text-transform: uppercase;
+    padding: 6px 20px;
+    cursor: pointer;
+    transition: all .3s;
+  }
+  .reset-btn:hover {
+    border-color: rgba(220,150,60,.8);
+    color: rgba(220,150,60,.9);
+    box-shadow: 0 0 12px rgba(220,120,30,.2);
+  }
+</style>
+</head>
+<body>
+
+<div class="page" id="page">
+  <div class="border-frame"></div>
+  <span class="corner tl"></span>
+  <span class="corner tr"></span>
+  <span class="corner bl"></span>
+  <span class="corner br"></span>
+
+  <div class="page-title">The Ashford Estate — Grounds & Environs</div>
+
+  <!-- The map SVG that gets revealed -->
+  <div class="map-layer">
+    <svg viewBox="0 0 400 460" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <style>
+          .label { font-family:'IM Fell English',serif; fill:#2a1505; }
+          .sub   { font-family:'IM Fell English',serif; fill:#5a3a18; font-style:italic; }
+          .road  { stroke:#8b6030; stroke-width:2; fill:none; }
+          .path  { stroke:#7a5020; stroke-width:1; fill:none; stroke-dasharray:4,3; }
+          .water { fill:#7aa8c0; fill-opacity:.45; stroke:#4a7890; stroke-width:.8; }
+          .forest-tree { fill:#4a7040; fill-opacity:.6; }
+          .bldg  { fill:#b08858; stroke:#7a5530; stroke-width:1; }
+          .bldg-dark { fill:#8a6040; stroke:#5a3510; stroke-width:1; }
+          .ground { fill:#c8a870; fill-opacity:.3; }
+          .contour { stroke:#9a7040; stroke-width:.4; fill:none; stroke-opacity:.4; }
+        </style>
+        <!-- Worn edge filter -->
+        <filter id="worn">
+          <feTurbulence type="fractalNoise" baseFrequency=".04" numOctaves="4" seed="5"/>
+          <feDisplacementMap in="SourceGraphic" scale="3" xChannelSelector="R" yChannelSelector="G"/>
+        </filter>
+      </defs>
+
+      <!-- Ground fill -->
+      <rect width="400" height="460" fill="#c8a870" fill-opacity=".18"/>
+
+      <!-- Contour lines -->
+      <ellipse class="contour" cx="200" cy="200" rx="160" ry="130"/>
+      <ellipse class="contour" cx="200" cy="200" rx="120" ry="95"/>
+      <ellipse class="contour" cx="200" cy="200" rx="80" ry="60"/>
+
+      <!-- River / lake -->
+      <path class="water" d="M 10 320 Q 60 280 120 310 Q 160 330 180 370 Q 190 410 150 440 L 10 440 Z"/>
+      <path class="water" d="M 10 290 Q 55 260 100 280 Q 130 295 150 330 Q 170 360 140 400 L 10 410 Z" fill-opacity=".3"/>
+
+      <!-- Forest clusters -->
+      <g class="forest-tree" filter="url(#worn)">
+        <!-- NE forest -->
+        <circle cx="310" cy="80" r="14"/><circle cx="330" cy="95" r="12"/>
+        <circle cx="350" cy="75" r="10"/><circle cx="360" cy="95" r="13"/>
+        <circle cx="380" cy="80" r="11"/><circle cx="345" cy="60" r="9"/>
+        <circle cx="320" cy="60" r="10"/>
+        <!-- SW forest -->
+        <circle cx="60" cy="180" r="12"/><circle cx="45" cy="195" r="10"/>
+        <circle cx="70" cy="200" r="11"/><circle cx="50" cy="210" r="9"/>
+        <circle cx="80" cy="185" r="8"/>
+      </g>
+
+      <!-- Roads -->
+      <path class="road" d="M 200 10 L 200 130" stroke-width="2.5"/>
+      <path class="road" d="M 200 130 Q 240 145 280 140 Q 330 133 390 150"/>
+      <path class="road" d="M 200 130 Q 160 180 110 200 Q 70 215 30 200"/>
+      <path class="road" d="M 200 130 L 200 320 Q 200 370 190 420"/>
+
+      <!-- Footpaths -->
+      <path class="path" d="M 200 130 Q 250 200 310 240 Q 350 265 370 310"/>
+      <path class="path" d="M 200 130 Q 150 160 100 160 Q 60 160 40 140"/>
+      <path class="path" d="M 200 320 Q 170 340 150 380"/>
+
+      <!-- ── BUILDINGS ── -->
+      <!-- Manor House (centre) -->
+      <g transform="translate(168,100)">
+        <rect class="bldg" x="0" y="0" width="64" height="48" rx="1"/>
+        <rect class="bldg-dark" x="10" y="0" width="14" height="20"/>
+        <rect class="bldg-dark" x="40" y="0" width="14" height="20"/>
+        <rect class="bldg-dark" x="22" y="30" width="20" height="18"/>
+        <!-- windows -->
+        <rect fill="#e8c880" fill-opacity=".5" x="14" y="5" width="6" height="8"/>
+        <rect fill="#e8c880" fill-opacity=".5" x="44" y="5" width="6" height="8"/>
+        <rect fill="#e8c880" fill-opacity=".5" x="16" y="18" width="5" height="6"/>
+        <rect fill="#e8c880" fill-opacity=".5" x="43" y="18" width="5" height="6"/>
+        <!-- front steps indicator -->
+        <line x1="32" y1="48" x2="32" y2="56" stroke="#7a5530" stroke-width="1.5"/>
+      </g>
+      <text class="label" x="200" y="172" text-anchor="middle" font-size="9" font-weight="bold">ASHFORD MANOR</text>
+
+      <!-- Gatehouse -->
+      <g transform="translate(188,30)">
+        <rect class="bldg" x="0" y="0" width="24" height="20" rx="1"/>
+        <rect class="bldg-dark" x="8" y="0" width="8" height="12"/>
+      </g>
+      <text class="sub" x="200" y="28" text-anchor="middle" font-size="7.5">Gatehouse</text>
+
+      <!-- Stables -->
+      <g transform="translate(255,150)">
+        <rect class="bldg" x="0" y="0" width="42" height="24" rx="1"/>
+        <line x1="14" y1="0" x2="14" y2="24" stroke="#7a5530" stroke-width=".8"/>
+        <line x1="28" y1="0" x2="28" y2="24" stroke="#7a5530" stroke-width=".8"/>
+      </g>
+      <text class="sub" x="276" y="184" text-anchor="middle" font-size="7.5">Stables</text>
+
+      <!-- Gamekeeper's Cottage -->
+      <g transform="translate(55,130)">
+        <rect class="bldg" x="0" y="0" width="28" height="22" rx="1"/>
+        <rect class="bldg-dark" x="10" y="0" width="8" height="12"/>
+      </g>
+      <text class="sub" x="69" y="163" text-anchor="middle" font-size="7">Keeper's</text>
+      <text class="sub" x="69" y="173" text-anchor="middle" font-size="7">Cottage</text>
+
+      <!-- Greenhouse -->
+      <g transform="translate(240,80)">
+        <rect fill="#7ab890" fill-opacity=".5" stroke="#4a8060" stroke-width=".8" x="0" y="0" width="32" height="18" rx="2"/>
+        <line x1="8" y1="0" x2="8" y2="18" stroke="#4a8060" stroke-width=".5"/>
+        <line x1="16" y1="0" x2="16" y2="18" stroke="#4a8060" stroke-width=".5"/>
+        <line x1="24" y1="0" x2="24" y2="18" stroke="#4a8060" stroke-width=".5"/>
+      </g>
+      <text class="sub" x="256" y="110" text-anchor="middle" font-size="7">Greenhouse</text>
+
+      <!-- Old Chapel (ruin) -->
+      <g transform="translate(100,250)">
+        <rect class="bldg-dark" fill-opacity=".5" x="0" y="0" width="30" height="22" rx="1"/>
+        <!-- Broken wall hints -->
+        <rect fill="#8a6040" fill-opacity=".7" x="25" y="5" width="5" height="10"/>
+        <rect fill="#8a6040" fill-opacity=".3" x="22" y="0" width="8" height="5"/>
+      </g>
+      <text class="sub" x="115" y="283" text-anchor="middle" font-size="7">Old Chapel</text>
+      <text class="sub" x="115" y="292" text-anchor="middle" font-size="6.5" fill-opacity=".6">(ruin)</text>
+
+      <!-- Boathouse -->
+      <g transform="translate(85,380)">
+        <rect class="bldg" x="0" y="0" width="28" height="20" rx="1"/>
+        <line x1="14" y1="20" x2="14" y2="32" stroke="#4a7890" stroke-width="1.5"/>
+      </g>
+      <text class="sub" x="99" y="413" text-anchor="middle" font-size="7">Boathouse</text>
+
+      <!-- Icehouse -->
+      <g transform="translate(310,260)">
+        <circle class="bldg-dark" cx="14" cy="14" r="14" fill-opacity=".6"/>
+        <circle fill="#c8a870" fill-opacity=".15" cx="14" cy="14" r="8"/>
+      </g>
+      <text class="sub" x="324" y="298" text-anchor="middle" font-size="7">Icehouse</text>
+
+      <!-- Well / Secret Garden marker -->
+      <circle cx="200" cy="280" r="5" fill="#8a6040" stroke="#5a3510" stroke-width=".8"/>
+      <circle cx="200" cy="280" r="2" fill="#4a2000"/>
+      <text class="sub" x="215" y="284" font-size="7">Secret Garden</text>
+
+      <!-- X mark (clue location) -->
+      <g transform="translate(310,320)">
+        <line x1="-7" y1="-7" x2="7" y2="7" stroke="#8a1010" stroke-width="2"/>
+        <line x1="7" y1="-7" x2="-7" y2="7" stroke="#8a1010" stroke-width="2"/>
+        <circle cx="0" cy="0" r="9" stroke="#8a1010" stroke-width=".8" fill="none"/>
+      </g>
+      <text class="sub" x="330" y="335" font-size="6.5" fill="#8a1010">?</text>
+
+      <!-- Compass rose -->
+      <g transform="translate(355,390)">
+        <circle cx="0" cy="0" r="22" fill="none" stroke="#7a5030" stroke-width=".8" stroke-opacity=".5"/>
+        <polygon points="0,-18 4,-6 0,-10 -4,-6" fill="#3a1a05"/>
+        <polygon points="0,18 4,6 0,10 -4,6" fill="#8a6040"/>
+        <polygon points="-18,0 -6,4 -10,0 -6,-4" fill="#8a6040"/>
+        <polygon points="18,0 6,4 10,0 6,-4" fill="#8a6040"/>
+        <text font-family="'IM Fell English',serif" font-size="7" fill="#3a1a05" text-anchor="middle" y="-21">N</text>
+        <text font-family="'IM Fell English',serif" font-size="6" fill="#7a5030" text-anchor="middle" y="27">S</text>
+        <text font-family="'IM Fell English',serif" font-size="6" fill="#7a5030" text-anchor="start" x="21" y="3">E</text>
+        <text font-family="'IM Fell English',serif" font-size="6" fill="#7a5030" text-anchor="end" x="-21" y="3">W</text>
+      </g>
+
+      <!-- Scale bar -->
+      <g transform="translate(30,430)">
+        <line x1="0" y1="0" x2="80" y2="0" stroke="#5a3a18" stroke-width="1"/>
+        <line x1="0" y1="-4" x2="0" y2="4" stroke="#5a3a18" stroke-width="1"/>
+        <line x1="40" y1="-3" x2="40" y2="3" stroke="#5a3a18" stroke-width="1"/>
+        <line x1="80" y1="-4" x2="80" y2="4" stroke="#5a3a18" stroke-width="1"/>
+        <text class="sub" x="40" y="-7" text-anchor="middle" font-size="6.5">½ mile</text>
+        <text class="sub" x="0" y="12" text-anchor="middle" font-size="5.5">0</text>
+        <text class="sub" x="80" y="12" text-anchor="middle" font-size="5.5">1</text>
+      </g>
+
+    </svg>
+  </div>
+
+  <div class="page-number">— iv —</div>
+
+  <!-- Thermal canvas sits on top of the map -->
+  <canvas id="thermal-canvas"></canvas>
+  <div class="instruction">Hold your hand over the map to reveal it…</div>
+</div>
+
+<button class="reset-btn" id="reset-btn">Reset Ink</button>
+
+<!-- Custom cursor -->
+<div id="heat-cursor"></div>
+
+<script>
+  const canvas = document.getElementById('thermal-canvas');
+  const ctx = canvas.getContext('2d');
+  const page = document.getElementById('page');
+  const cursor = document.getElementById('heat-cursor');
+
+  // ── Brush settings ──
+  const BRUSH_RADIUS = 85;        // reveal radius in px
+  const HEAT_TRAIL = .15;         // how fast ink re-covers (0 = never, 1 = instantly) — set to 0 for no re-cover
+  const RE_COVER_SPEED = 0.00008;  // very slow re-cooling per frame
+
+  let isActive = false;
+  let mouseX = 0, mouseY = 0;
+  let revealMap; // Float32Array tracking revealed amount 0-1
+
+  function resize() {
+    const rect = page.getBoundingClientRect();
+    canvas.width  = rect.width;
+    canvas.height = rect.height;
+    revealMap = new Float32Array(canvas.width * canvas.height);
+    drawOverlay();
+  }
+
+  function drawOverlay() {
+    // Start with full dark cold overlay
+    const imageData = ctx.createImageData(canvas.width, canvas.height);
+    const d = imageData.data;
+    for (let i = 0; i < revealMap.length; i++) {
+      const v = revealMap[i]; // 0 = fully covered, 1 = fully revealed
+      // Ink colour: near-black with very slight warm tint when partially revealed
+      const alpha = Math.round((1 - v) * 245);
+      d[i*4 + 0] = 12;
+      d[i*4 + 1] = 7;
+      d[i*4 + 2] = 3;
+      d[i*4 + 3] = alpha;
+    }
+    ctx.putImageData(imageData, 0, 0);
+
+    // Draw warm glow for recently revealed areas
+    // We do a second pass: for each pixel with reveal > 0.05, add warm radial glow
+    // This is handled via compositing below
+    drawWarmGlow();
+  }
+
+  function drawWarmGlow() {
+    // Scan for local maxima to place glow centres — simplified: track mouse
+    if (!isActive) return;
+    const rect = page.getBoundingClientRect();
+    const x = mouseX - rect.left;
+    const y = mouseY - rect.top;
+    ctx.save();
+    ctx.globalCompositeOperation = 'source-atop';
+    const grd = ctx.createRadialGradient(x, y, 0, x, y, BRUSH_RADIUS * 1.3);
+    grd.addColorStop(0,   'rgba(200,100,20,.18)');
+    grd.addColorStop(0.5, 'rgba(150,60,10,.08)');
+    grd.addColorStop(1,   'rgba(0,0,0,0)');
+    ctx.fillStyle = grd;
+    ctx.beginPath();
+    ctx.arc(x, y, BRUSH_RADIUS * 1.3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function reveal(cx, cy) {
+    const R = BRUSH_RADIUS;
+    const W = canvas.width;
+    const H = canvas.height;
+    const x0 = Math.max(0, Math.floor(cx - R));
+    const x1 = Math.min(W - 1, Math.ceil(cx + R));
+    const y0 = Math.max(0, Math.floor(cy - R));
+    const y1 = Math.min(H - 1, Math.ceil(cy + R));
+
+    for (let y = y0; y <= y1; y++) {
+      for (let x = x0; x <= x1; x++) {
+        const dx = x - cx, dy = y - cy;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+        if (dist < R) {
+          // Soft brush falloff (cosine curve)
+          const t = 1 - dist / R;
+          const strength = t * t * (3 - 2*t); // smoothstep
+          const idx = y * W + x;
+          revealMap[idx] = Math.min(1, revealMap[idx] + strength * 0.18);
+        }
+      }
+    }
+    drawOverlay();
+  }
+
+  // Slow re-cooling animation
+  let lastRaf = 0;
+  function coolDown(ts) {
+    if (ts - lastRaf > 80) { // every ~80ms
+      lastRaf = ts;
+      let changed = false;
+      for (let i = 0; i < revealMap.length; i++) {
+        if (revealMap[i] > 0) {
+          revealMap[i] = Math.max(0, revealMap[i] - RE_COVER_SPEED * 80);
+          changed = true;
+        }
+      }
+      if (changed) drawOverlay();
+    }
+    requestAnimationFrame(coolDown);
+  }
+  requestAnimationFrame(coolDown);
+
+  // ── Event listeners ──
+  function getPageXY(e) {
+    const rect = page.getBoundingClientRect();
+    if (e.touches) {
+      return { x: e.touches[0].clientX - rect.left, y: e.touches[0].clientY - rect.top,
+               cx: e.touches[0].clientX, cy: e.touches[0].clientY };
+    }
+    return { x: e.clientX - rect.left, y: e.clientY - rect.top,
+             cx: e.clientX, cy: e.clientY };
+  }
+
+  canvas.addEventListener('mousemove', e => {
+    const {x, y, cx, cy} = getPageXY(e);
+    mouseX = cx; mouseY = cy;
+    cursor.style.left = cx + 'px';
+    cursor.style.top  = cy + 'px';
+    cursor.classList.add('active');
+    isActive = true;
+    reveal(x, y);
+  });
+
+  canvas.addEventListener('mouseleave', () => {
+    cursor.classList.remove('active');
+    isActive = false;
+  });
+
+  canvas.addEventListener('touchmove', e => {
+    e.preventDefault();
+    const {x, y} = getPageXY(e);
+    isActive = true;
+    reveal(x, y);
+  }, { passive: false });
+
+  canvas.addEventListener('touchend', () => { isActive = false; });
+
+  document.getElementById('reset-btn').addEventListener('click', () => {
+    revealMap.fill(0);
+    drawOverlay();
+  });
+
+  window.addEventListener('resize', resize);
+  resize();
+</script>
+</body>
+</html>
