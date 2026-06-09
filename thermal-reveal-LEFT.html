@@ -82,6 +82,7 @@
   }
 
   function drawWarmGlow() {
+    if (!isActive) return;
     const rect = page.getBoundingClientRect();
     const x = mouseX - rect.left;
     const y = mouseY - rect.top;
